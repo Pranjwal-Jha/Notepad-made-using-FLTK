@@ -16,4 +16,4 @@ Delete: Delete selected text.
 Find: Search for text in the document.
 Replace: Replace text in the document.
 Prerequisites
-FLTK: Ensure you have FLTK installed on your system. You can download it from FLTK's ## official website <a id = "https://www.fltk.org/" ></a>
+FLTK: Ensure you have FLTK installed on your system. You can download it from [FLTK's official website](https://www.fltk.org/).
