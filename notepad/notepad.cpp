@@ -13,6 +13,10 @@
 #include <FL/Fl_Text_Editor.H>
 #include <FL/Fl_Menu_.H>
 #include <FL/Fl_Menu.H>
+#include <fstream>
+#include <iostream>
+#include <string>
+#include <FL/Fl_Native_File_Chooser.H>
 #include <FL/Fl_Menu_Button.H>
 #include <FL/Fl_Menu_Window.H>
 #include <FL/Fl_Menu_Bar.H>
@@ -34,19 +38,30 @@
 	// replace cancel
 	// search 
 
-class EditorWindow : public Fl_Double_Window
+class EditorWindow: public Fl_Double_Window
 {
 public:
-	EditorWindow(int width, int height, const char* t);
-	~EditorWindow();
-	Fl_Window* replace_dlg;
-	Fl_Input* replace_find;
-	Fl_Input* replace_with;
-	Fl_Button* replace_all;
-	Fl_Return_Button* replace_next;
-	Fl_Text_Editor* text_editor;
+	EditorWindow(int width, int height, const char* t)
+		:Fl_Double_Window(width, height, t)
+	{
+	}
+	~EditorWindow()
+	{
+	}
+
+	Fl_Window* replace_dlg = nullptr;
+	Fl_Input* replace_find = nullptr;
+	Fl_Input* replace_with = nullptr;
+	Fl_Button* replace_all = nullptr;
+	Fl_Return_Button* replace_next =nullptr;
+	Fl_Text_Editor* text_editor = nullptr;
 	char search[256];
 	Fl_Text_Buffer* textbuffer;
+	std::string current_filename; // Add this line
+
+	void set_filename(const char* filename) {
+		current_filename = filename ? filename : "";
+	}
 };
 
 int changed = 0;
@@ -101,9 +116,10 @@ void find_cb(Fl_Widget* w, void* v)
 		find2_cb(w, v);
 	}
 }
-void new_cb(Fl_Widget*, void*)
+void new_cb(Fl_Widget*, void* v)
 {
-	if (!check_save())
+	EditorWindow* e = (EditorWindow*)v;
+	if (!check_save(e))
 		return;
 	filename[0] = '\0';
 	textbuffer->select(0, textbuffer->length());
@@ -112,9 +128,10 @@ void new_cb(Fl_Widget*, void*)
 	textbuffer->call_modify_callbacks();
 }
 
-void open_cb(Fl_Widget*, void*)
+void open_cb(Fl_Widget*, void* v)
 {
-	if (!check_save())
+	EditorWindow* e = (EditorWindow*)v;
+	if (!check_save(e))
 		return;
 	char* newfile = fl_file_chooser("Open file ?", "*", filename);
 	if (newfile != NULL)
@@ -125,9 +142,10 @@ void paste_cb(Fl_Widget*, void* v)
 	EditorWindow* e = (EditorWindow*)v;
 	Fl_Text_Editor::kf_paste(0, e->text_editor);
 }
-void quit_cb(Fl_Widget*, void*)
+void quit_cb(Fl_Widget*, void* v)
 {
-	if (changed && !check_save())
+	EditorWindow* e = (EditorWindow*)v;
+	if (changed && !check_save(e))
 		return;
 	exit(0);
 }
@@ -136,27 +154,11 @@ void replace_cb(Fl_Widget*, void* v)
 	EditorWindow* e = (EditorWindow*)v;
 	e->replace_dlg->show();
 }
-void save_cb(void)
-{
-	if (filename[0] == '\0')
-	{
-		saveas_cb();
-		return;
-	}
-	else
-		save_file(filename);
-}
 
-void saveas_cb(void)
-{
-	char* newfile;
-	newfile = fl_file_chooser("Save file as ? :", "*", filename);
-	if (newfile != NULL)
-		save_file(newfile);
-}
 
-int check_save(void)
+int check_save(void* v)
 {
+	EditorWindow* window = (EditorWindow*)v;
 	if (!changed)
 		return 1;
 	int r = fl_choice("The current file has not been saved \n"
@@ -164,8 +166,8 @@ int check_save(void)
 		"Cancel", "Save", "Discard");
 	if (r == 1)
 	{
-		save_cb();
-		return !changed;
+		save_cb(nullptr,window);
+		return ~changed;
 	}
 	return (r == 2) ? 1 : 0;
 }
@@ -190,16 +192,61 @@ void load_file(char* newfile, int ipos)
 	loading = 0;
 	textbuffer->call_modify_callbacks();
 }
-
-void save_file(char* newfile)
-{
-	if (textbuffer->savefile(newfile))
-		fl_alert("error writing to the file \'%s\' : \n%s.", newfile, strerror(errno));
-	else
-		strcpy(filename, newfile);
-	changed = 0;
-	textbuffer->call_modify_callbacks();
+//void save_cb()
+//{
+//	if (filename[0] == '\0')
+//	{
+//		saveas_cb();
+//		return;
+//	}
+//	else
+//		save_file(filename);
+//}
+//
+//void saveas_cb()
+//{
+//	char* newfile;
+//	newfile = fl_file_chooser("Save file as ? :", "*", filename);
+//	if (newfile != NULL)
+//		save_file(newfile);
+//}
+//void save_file(char* newfile)
+//{
+//	if (textbuffer->savefile(newfile))
+//		fl_alert("error writing to the file \'%s\' : \n%s.", newfile, strerror(errno));
+//	else
+//		strcpy(filename, newfile);
+//	changed = 0;
+//	textbuffer->call_modify_callbacks();
+//}
+bool save_file(const char* filename, Fl_Text_Buffer* textbuffer) {
+	std::ofstream ofs(filename);
+	if (!ofs) {
+		fl_alert("Error: Cannot open file for writing.");
+		return false;
+	}
+	ofs << textbuffer->text();
+	return true;
 }
+bool save_as(Fl_Text_Buffer* textbuffer) 
+{
+	Fl_Native_File_Chooser file_chooser;
+	file_chooser.type(Fl_Native_File_Chooser::BROWSE_SAVE_FILE);
+	file_chooser.title("Save As");
+	file_chooser.options(Fl_Native_File_Chooser::SAVEAS_CONFIRM);
+
+	switch (file_chooser.show())
+	{
+	case -1:  // Error
+		fl_alert("%s", file_chooser.errmsg());
+		return false;
+	case 1:   // Cancel
+		return false;
+	default:  // User picked a file
+		return save_file(file_chooser.filename(), textbuffer);
+	}
+}
+
 void set_title(Fl_Window* w)
 {
 	char title[256];
@@ -218,10 +265,29 @@ void set_title(Fl_Window* w)
 		else
 			strcpy(title, filename);
 	}
-	if (changed)
+	if (changed)	
 		strcat(title, " (modified)");
 	w->label(title);
 }
+// Save callback function
+void save_cb(Fl_Widget*, void* data)
+{
+	EditorWindow* window = (EditorWindow*)data;
+	static const char* filename = "default.txt";  // Replace with logic to get current file name if needed
+
+	if (!save_file(window->current_filename.c_str(), window->textbuffer)) {
+		// If save failed, fall back to "Save As"
+		//save_as(window->textbuffer);
+	}
+}
+
+// Save As callback function
+void saveas_cb(Fl_Widget*, void* data) 
+{
+	EditorWindow* window = (EditorWindow*)data;
+	save_as(window->textbuffer);
+}
+
 //Fl_Menu_Item menuitems[] = {
 //		{"&File",0,,0,0,FL_SUBMENU},
 //		{"&Open File", FL_CTRL + 'o' , (Fl_Callback*)open_cb},
@@ -248,7 +314,7 @@ Fl_Menu_Item menuitems[] = {
 	{"&File", 0, 0, 0, FL_SUBMENU},
 	{"&Open File", FL_CTRL + 'o', (Fl_Callback*)open_cb},
 	//{"&Insert File", FL_CTRL + 'i', (Fl_Callback*)insert_cb, 0, FL_MENU_DIVIDER},
-	{"&Save File", FL_CTRL + 's', (Fl_Callback*)save_cb},
+	{"&Save File", FL_CTRL + 's', (Fl_Callback*)save_cb,0},
 	{"&Save File As", FL_CTRL + FL_SHIFT + 's', (Fl_Callback*)saveas_cb, 0, FL_MENU_DIVIDER},
 	//{"&Close View", FL_CTRL + 'w', (Fl_Callback*)close_cb, 0},
 	{"&Exit", FL_CTRL + 'q', (Fl_Callback*)quit_cb, 0},
@@ -265,19 +331,21 @@ Fl_Menu_Item menuitems[] = {
 	{0},
 	{0}
 };
-Fl_Menu_Bar* menubar = new Fl_Menu_Bar(0, 0, 640, 30);
-//menubar->copy(menuitems);
+//Fl_Menu_Bar* menubar = new Fl_Menu_Bar(0, 0, 640, 30);
+//menubar->add(menuitems);
 Fl_Button* cancel = new Fl_Button(230, 70, 60, 25,"Cancel");
 int main(int argc, char** argv)
 {
 	
 	textbuffer = new Fl_Text_Buffer;
-	w = new EditorWindow(800, 800, "window");
+	w = new EditorWindow(640, 400, "window");
     w->text_editor = new Fl_Text_Editor(0, 30, 640, 370);
-    w->text_editor->buffer(w->textbuffer);
-    w->textbuffer->add_modify_callback(changed_cb, w);
-    w->textbuffer->call_modify_callbacks();
-    w->text_editor->textfont(FL_COURIER);
+    w->text_editor->buffer(textbuffer);
+    textbuffer->add_modify_callback(changed_cb, w);
+    textbuffer->call_modify_callbacks();
+    //text_editor->textfont(FL_COURIER);
+	Fl_Menu_Bar* menubar = new Fl_Menu_Bar(0, 0, 640, 30);
+	menubar->copy(menuitems);
     Fl_Window* replace_dlg = new Fl_Window(300, 105, "Replace");
     Fl_Input* replace_find = new Fl_Input(70, 10, 200, 25, "Find");
     Fl_Input* replace_with = new Fl_Input(70, 40, 200, 25, "Replace");
